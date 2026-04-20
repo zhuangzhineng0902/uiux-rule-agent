@@ -1,0 +1,21 @@
+# 输入源配置
+[input]
+sources = []
+max_pages = 5
+
+# 输出目录配置
+[output]
+directory = "data"
+
+# OpenAI 相关配置
+[openai]
+api_key = ""
+base_url = "https://api.openai.com/v1"
+model = "gpt-5.4-mini"
+# 可选值: auto | responses | chat_completions
+api_style = "auto"
+
+# 抽取策略配置
+[extraction]
+# 可选值: auto | heuristic | llm
+strategy = "auto"
