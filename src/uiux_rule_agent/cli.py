@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
+from pathlib import Path
 
 from .config import DEFAULT_CONFIG_PATH, load_app_config
 from .extractors import dedupe_rules, generate_rules
@@ -51,6 +52,7 @@ def run(
                 extractor=selected_extractor,
                 llm_model=llm_model,
                 app_config=app_config,
+                output_dir=selected_output_dir,
             )
         )
     rules = dedupe_rules(rules)
@@ -99,6 +101,7 @@ def _generate_non_official_rules(
     extractor: str,
     llm_model: str | None,
     app_config,
+    output_dir: str,
 ):
     if extractor not in {"auto", "heuristic", "llm"}:
         raise ValueError(f"不支持的抽取器类型：{extractor}")
@@ -107,11 +110,21 @@ def _generate_non_official_rules(
         return generate_rules(documents)
 
     if extractor == "llm":
-        return extract_rules_with_llm(documents, config=app_config, model=resolve_llm_model(app_config, llm_model))
+        return extract_rules_with_llm(
+            documents,
+            config=app_config,
+            model=resolve_llm_model(app_config, llm_model),
+            debug_dir=str(Path(output_dir) / "debug"),
+        )
 
     if can_use_openai_llm(app_config):
         try:
-            return extract_rules_with_llm(documents, config=app_config, model=resolve_llm_model(app_config, llm_model))
+            return extract_rules_with_llm(
+                documents,
+                config=app_config,
+                model=resolve_llm_model(app_config, llm_model),
+                debug_dir=str(Path(output_dir) / "debug"),
+            )
         except LLMExtractorError:
             return generate_rules(documents)
 

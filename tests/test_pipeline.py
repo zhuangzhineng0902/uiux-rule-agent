@@ -17,7 +17,12 @@ if str(SRC) not in sys.path:
 
 from uiux_rule_agent.cli import run
 from uiux_rule_agent.config import load_app_config
-from uiux_rule_agent.llm_extractor import LLMExtractorError, extract_rules_with_llm
+from uiux_rule_agent.llm_extractor import (
+    LLMExtractorError,
+    _build_instructions,
+    _coerce_rule,
+    extract_rules_with_llm,
+)
 from uiux_rule_agent.models import RuleRow, SourceDocument
 
 
@@ -59,6 +64,121 @@ class PipelineTest(unittest.TestCase):
             "global_rules": [],
         }
 
+    def _build_llm_payload_with_dropped_rule(self) -> dict:
+        payload = self._build_llm_structured_payload(subject="可写入主色")
+        payload["foundation_rules"].append(
+            {
+                "page_type": "foundation",
+                "subject": "",
+                "component": "",
+                "state": "default",
+                "property_name": "color",
+                "condition_if": "If 语义令牌 = 无效主色",
+                "then_clause": "Then color 必须为 #FF4D4F",
+                "else_clause": "Else 保持默认规则",
+                "default_value": "",
+                "preferred_pattern": "使用统一 token",
+                "anti_pattern": "不要直接写死无效规则",
+                "evidence": "mocked invalid rule",
+                "source_ref": "memory://doc",
+            }
+        )
+        return payload
+
+    def test_llm_prompt_contains_required_extraction_constraints(self) -> None:
+        instructions = _build_instructions()
+
+        self.assertIn("颜色值、像素值", instructions)
+        self.assertIn("必须、禁止、避免、建议、应该、最多只能、当...时、少于或等于、不超过、间距、等分", instructions)
+        self.assertIn("Markdown 表格", instructions)
+        self.assertIn("规则内容必须使用中文描述", instructions)
+
+    def test_llm_rule_can_infer_default_value_from_then_clause(self) -> None:
+        doc = SourceDocument(
+            source_type="markdown",
+            location="memory://doc",
+            title="测试文档",
+            text="",
+        )
+        item = {
+            "page_type": "foundation",
+            "subject": "品牌主色",
+            "component": "",
+            "state": "default",
+            "property_name": "color",
+            "condition_if": "If 语义令牌 = 品牌主色",
+            "then_clause": "Then color 必须为 #1677FF",
+            "else_clause": "Else 保持默认规则",
+            "default_value": "",
+            "preferred_pattern": "使用统一品牌主色 token",
+            "anti_pattern": "不要混用多个接近的主色蓝",
+            "evidence": "mocked evidence",
+            "source_ref": "memory://doc",
+        }
+
+        row = _coerce_rule(item, doc, "foundation", "FDN")
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row.default_value, "#1677FF")
+
+    def test_llm_rule_can_be_kept_when_default_value_is_empty(self) -> None:
+        doc = SourceDocument(
+            source_type="markdown",
+            location="memory://doc",
+            title="测试文档",
+            text="",
+        )
+        item = {
+            "page_type": "component",
+            "subject": "按钮",
+            "component": "button",
+            "state": "default",
+            "property_name": "loading-feedback",
+            "condition_if": "If 按钮进入 loading 状态",
+            "then_clause": "Then 需要提供清晰的 loading 反馈",
+            "else_clause": "Else 保持默认按钮样式",
+            "default_value": "",
+            "preferred_pattern": "使用统一 loading 反馈",
+            "anti_pattern": "不要让按钮进入 loading 后无反馈",
+            "evidence": "mocked evidence",
+            "source_ref": "memory://doc",
+        }
+
+        row = _coerce_rule(item, doc, "component", "CMP")
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row.default_value, "")
+        self.assertEqual(row.then_clause, "Then 需要提供清晰的 loading 反馈")
+
+    def test_llm_rule_is_dropped_when_required_fields_are_missing(self) -> None:
+        doc = SourceDocument(
+            source_type="markdown",
+            location="memory://doc",
+            title="测试文档",
+            text="",
+        )
+        item = {
+            "page_type": "foundation",
+            "subject": "",
+            "component": "",
+            "state": "default",
+            "property_name": "color",
+            "condition_if": "",
+            "then_clause": "Then color 必须为 #1677FF",
+            "else_clause": "",
+            "default_value": "",
+            "preferred_pattern": "",
+            "anti_pattern": "",
+            "evidence": "",
+            "source_ref": "",
+        }
+
+        row = _coerce_rule(item, doc, "foundation", "FDN")
+
+        self.assertIsNone(row)
+
     def test_output_directory_can_be_loaded_from_config_and_used(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
 
@@ -99,6 +219,67 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["component_rules"], 0)
             self.assertGreater(result["global_rules"], 0)
             self.assertTrue((output_dir / "foundation-rules.csv").exists())
+
+    def test_root_directory_name_can_force_component_bucket(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            component_root = Path(temp_dir) / "component-rules"
+            component_root.mkdir()
+            (component_root / "button.md").write_text(
+                "# 按钮\n\n```css\n.button { height: 32px; background-color: #0067D1; }\n.button:hover { background-color: #2E86DE; }\n.button[disabled] { opacity: 0.6; }\n```\n",
+                encoding="utf-8",
+            )
+
+            output_dir = Path(temp_dir) / "out"
+            result = run(str(component_root), output_dir=str(output_dir), max_pages=1)
+
+            self.assertEqual(result["foundation_rules"], 0)
+            self.assertGreater(result["component_rules"], 0)
+            self.assertEqual(result["global_rules"], 0)
+
+            with (output_dir / "component-rules.csv").open(encoding="utf-8") as handle:
+                component_rows = list(csv.DictReader(handle))
+            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
+                foundation_rows = list(csv.DictReader(handle))
+            with (output_dir / "global-layout-rules.csv").open(encoding="utf-8") as handle:
+                global_rows = list(csv.DictReader(handle))
+
+            self.assertTrue(any(row["subject"] == "button" and row["state"] == "hover" for row in component_rows))
+            self.assertEqual(foundation_rows, [])
+            self.assertEqual(global_rows, [])
+
+    def test_unbucketed_markdown_still_routes_by_semantics_when_bucketed_docs_exist(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "docs"
+            root.mkdir()
+            component_dir = root / "component-rules"
+            component_dir.mkdir()
+
+            (component_dir / "button.md").write_text(
+                "# Button\n\n```css\n.button { height: 32px; background-color: #0067D1; }\n.button:hover { background-color: #2E86DE; }\n.button[disabled] { opacity: 0.6; }\n```\n",
+                encoding="utf-8",
+            )
+            (root / "mixed.md").write_text(
+                "# Mixed\n\n- Primary color: #0067D1\n\n如果 屏幕宽度 < 600px，则 底部操作栏 必须 撑满全屏（100% width），否则 保持桌面端悬浮宽度。\n",
+                encoding="utf-8",
+            )
+
+            output_dir = root / "out"
+            result = run(str(root), output_dir=str(output_dir), max_pages=1)
+
+            self.assertGreater(result["foundation_rules"], 0)
+            self.assertGreater(result["component_rules"], 0)
+            self.assertGreater(result["global_rules"], 0)
+
+            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
+                foundation_rows = list(csv.DictReader(handle))
+            with (output_dir / "component-rules.csv").open(encoding="utf-8") as handle:
+                component_rows = list(csv.DictReader(handle))
+            with (output_dir / "global-layout-rules.csv").open(encoding="utf-8") as handle:
+                global_rows = list(csv.DictReader(handle))
+
+            self.assertTrue(any(row["subject"] == "Primary color" for row in foundation_rows))
+            self.assertTrue(any(row["subject"] == "button" for row in component_rows))
+            self.assertTrue(any("屏幕宽度 < 600px" in row["condition_if"] for row in global_rows))
 
     def test_chat_completions_api_style_can_extract_rules(self) -> None:
         doc = SourceDocument(
@@ -242,6 +423,54 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(len(captured_payloads), 2)
             self.assertIn("response_format", captured_payloads[0])
             self.assertNotIn("response_format", captured_payloads[1])
+
+    def test_cli_llm_run_writes_debug_artifacts_for_dropped_rules(self) -> None:
+        fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_dir = Path(temp_dir) / "out"
+            config_path = Path(temp_dir) / "ai.toml"
+            config_path.write_text(
+                f'[input]\nsources = ["{fixture}"]\nmax_pages = 1\n\n'
+                f'[output]\ndirectory = "{output_dir}"\n\n'
+                '[openai]\napi_key = "test-key"\nbase_url = "https://example.com/v1"\nmodel = "gpt-5.4-mini"\napi_style = "chat_completions"\n\n'
+                '[extraction]\nstrategy = "llm"\n',
+                encoding="utf-8",
+            )
+
+            def fake_urlopen(request, timeout=120):
+                return FakeJSONResponse(
+                    {
+                        "choices": [
+                            {
+                                "message": {
+                                    "content": json.dumps(self._build_llm_payload_with_dropped_rule(), ensure_ascii=False)
+                                }
+                            }
+                        ]
+                    }
+                )
+
+            with patch("uiux_rule_agent.llm_extractor.urlopen", side_effect=fake_urlopen):
+                result = run(None, config_path=str(config_path))
+
+            self.assertEqual(result["foundation_rules"], 1)
+
+            debug_dir = output_dir / "debug" / "llm" / "doc-001"
+            self.assertTrue((debug_dir / "meta.json").exists())
+            self.assertTrue((debug_dir / "request.json").exists())
+            self.assertTrue((debug_dir / "raw-response.json").exists())
+            self.assertTrue((debug_dir / "payload.json").exists())
+            self.assertTrue((debug_dir / "dropped-rules.json").exists())
+            self.assertTrue((debug_dir / "output-text.txt").exists())
+
+            meta = json.loads((debug_dir / "meta.json").read_text(encoding="utf-8"))
+            dropped = json.loads((debug_dir / "dropped-rules.json").read_text(encoding="utf-8"))
+
+            self.assertEqual(meta["kept_rule_count"], 1)
+            self.assertEqual(meta["dropped_rule_count"], 1)
+            self.assertEqual(len(dropped["dropped_rules"]), 1)
+            self.assertIn("缺少 subject", dropped["dropped_rules"][0])
 
     def test_multiple_remote_sources_can_be_combined_from_config(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

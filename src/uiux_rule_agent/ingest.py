@@ -26,6 +26,10 @@ def strip_code_fences(text: str) -> str:
 
 
 def infer_markdown_bucket(file: Path, root: Path) -> str:
+    root_bucket = _infer_root_bucket(root)
+    if root_bucket:
+        return root_bucket
+
     try:
         relative = file.relative_to(root) if root.is_dir() else Path(file.name)
     except ValueError:
@@ -33,6 +37,20 @@ def infer_markdown_bucket(file: Path, root: Path) -> str:
 
     for part in relative.parts:
         bucket = MARKDOWN_BUCKET_ALIASES.get(part.lower())
+        if bucket:
+            return bucket
+    return ""
+
+
+def _infer_root_bucket(root: Path) -> str:
+    candidates: list[str] = []
+    if root.is_dir():
+        candidates.append(root.name)
+    elif root.is_file() and root.parent != root:
+        candidates.append(root.parent.name)
+
+    for candidate in candidates:
+        bucket = MARKDOWN_BUCKET_ALIASES.get(candidate.lower())
         if bucket:
             return bucket
     return ""

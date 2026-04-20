@@ -730,9 +730,15 @@ def dedupe_rules(rows: list[RuleRow]) -> list[RuleRow]:
 def generate_rules(docs: list[SourceDocument]) -> list[RuleRow]:
     has_bucketed_markdown = any(doc.source_type == "markdown" and doc.source_bucket for doc in docs)
     if has_bucketed_markdown:
-        foundation_docs = [doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket == "foundation"]
-        component_docs = [doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket == "component"]
-        global_docs = [doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket == "global"]
+        foundation_docs = [
+            doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket in {"", "foundation"}
+        ]
+        component_docs = [
+            doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket in {"", "component"}
+        ]
+        global_docs = [
+            doc for doc in docs if doc.source_type != "markdown" or doc.source_bucket in {"", "global"}
+        ]
     else:
         foundation_docs = docs
         component_docs = docs

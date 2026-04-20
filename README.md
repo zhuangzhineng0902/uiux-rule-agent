@@ -124,6 +124,51 @@ max_pages = 5
 - 可以一次传入多个远程 `http/https` URL。
 - 或者一次传入一个本地 Markdown 文件，或一个本地 Markdown 目录。
 - 同一次运行中不能混用远程 URL 和本地路径。
+- 如果输入的 Markdown 根目录名就是 `foundation-rules`、`component-rules`、`global-layout-rules` 之一，则该目录下遍历到的文件会全部强制写入对应的同名 CSV。
+- 如果目录名未命中上述目标名，则系统会逐个文件按内容语义判断，分别生成到 foundation、component、global 对应的 CSV 中。
+
+## 目录命名路由规则
+
+当输入源是本地 Markdown 目录时，系统会先遍历目录中的文件，再决定每个文件应该落到哪个 CSV：
+
+1. 如果输入根目录名命中目标文件名：
+   例如输入目录是 `component-rules/`，则该目录下所有 Markdown 文件都会强制写入 `component-rules.csv`。
+2. 如果输入根目录名没有命中目标文件名：
+   则会继续看子目录名。像 `foundation-rules/`、`component-rules/`、`global-layout-rules/` 这样的子目录，会把目录中的文件强制路由到对应 CSV。
+3. 如果某个文件既不在命名目录下，输入根目录名也未命中：
+   则这个文件会按内容语义自动判断该写入 `foundation-rules.csv`、`component-rules.csv` 还是 `global-layout-rules.csv`。
+
+可以直接用仓库里的示例目录验证：
+
+```text
+examples/routing-demo/
+  foundation-rules/
+    tokens.md
+  component-rules/
+    button.md
+  global-layout-rules/
+    layout.md
+  mixed.md
+```
+
+这个示例目录的行为是：
+
+- `foundation-rules/tokens.md` 会强制写入 `foundation-rules.csv`
+- `component-rules/button.md` 会强制写入 `component-rules.csv`
+- `global-layout-rules/layout.md` 会强制写入 `global-layout-rules.csv`
+- `mixed.md` 不在命名目录下，因此会按内容语义自动分流
+
+对应命令：
+
+```bash
+python3 ./agent.py --input ./examples/routing-demo --output-dir ./data
+```
+
+如果你只输入某个命名目录本身，也会全部强制写到对应 CSV：
+
+```bash
+python3 ./agent.py --input ./examples/routing-demo/component-rules --output-dir ./data
+```
 
 ## 常用运行方式
 
@@ -163,6 +208,38 @@ python3 ./agent.py \
 ```bash
 python3 ./agent.py
 ```
+
+## 调试排查
+
+当使用 LLM 抽取时，程序会自动把每个文档的中间结果写到输出目录下的 `debug/llm/` 中，便于排查“模型明明返回了 JSON，但规则没有写进 CSV”的情况。
+
+目录结构示例：
+
+```text
+data/
+  debug/
+    llm/
+      doc-001/
+        meta.json
+        request.json
+        raw-response.json
+        payload.json
+        dropped-rules.json
+        output-text.txt
+```
+
+排查时可以重点看：
+
+- `payload.json`
+  模型最终返回并被程序解析后的 JSON。
+- `dropped-rules.json`
+  被过滤掉的规则及原因，例如缺少 `subject`、`property_name`。
+- `meta.json`
+  当前文档保留了多少条规则、丢弃了多少条规则，以及是否发生了接口回退。
+
+补充说明：
+
+- `default_value` 允许为空，系统会优先保留规则本身，不会因为 `default_value` 为空就直接过滤掉该规则。
 
 结构化 Markdown 目录示例：
 

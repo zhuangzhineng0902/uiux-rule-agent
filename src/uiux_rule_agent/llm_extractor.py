@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+import sys
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -49,7 +51,12 @@ def resolve_openai_api_style(config: AppConfig) -> str:
     return style
 
 
-def extract_rules_with_llm(docs: list[SourceDocument], config: AppConfig, model: str | None = None) -> list[RuleRow]:
+def extract_rules_with_llm(
+    docs: list[SourceDocument],
+    config: AppConfig,
+    model: str | None = None,
+    debug_dir: str | None = None,
+) -> list[RuleRow]:
     if not can_use_openai_llm(config):
         raise LLMExtractorError(f"当 extractor=llm 时，必须在 {config.config_path} 中配置 OpenAI API key。")
 
@@ -57,27 +64,55 @@ def extract_rules_with_llm(docs: list[SourceDocument], config: AppConfig, model:
     selected_api_style = resolve_openai_api_style(config)
     rows: list[RuleRow] = []
 
-    for doc in docs:
-        payload = _extract_doc_payload(doc, config, selected_model, selected_api_style)
-        rows.extend(_rows_from_payload(payload, doc))
+    for index, doc in enumerate(docs, start=1):
+        payload, debug_info = _extract_doc_payload(doc, config, selected_model, selected_api_style)
+        doc_rows, dropped_messages = _rows_from_payload(payload, doc)
+        rows.extend(doc_rows)
+        if debug_dir:
+            _write_llm_debug_artifacts(
+                debug_dir=debug_dir,
+                doc_index=index,
+                doc=doc,
+                model=selected_model,
+                api_style=selected_api_style,
+                payload=payload,
+                debug_info=debug_info,
+                dropped_messages=dropped_messages,
+            )
 
     return rows
 
 
-def _extract_doc_payload(doc: SourceDocument, config: AppConfig, model: str, api_style: str) -> dict[str, object]:
+def _extract_doc_payload(
+    doc: SourceDocument,
+    config: AppConfig,
+    model: str,
+    api_style: str,
+) -> tuple[dict[str, object], dict[str, object]]:
     if api_style == "responses":
         return _extract_doc_payload_via_responses(doc, config, model)
     if api_style == "chat_completions":
         return _extract_doc_payload_via_chat_completions(doc, config, model)
     if api_style == "auto":
         try:
-            return _extract_doc_payload_via_responses(doc, config, model)
-        except LLMExtractorError:
-            return _extract_doc_payload_via_chat_completions(doc, config, model)
+            payload, debug_info = _extract_doc_payload_via_responses(doc, config, model)
+            debug_info["api_style"] = "auto"
+            return payload, debug_info
+        except LLMExtractorError as responses_error:
+            payload, debug_info = _extract_doc_payload_via_chat_completions(doc, config, model)
+            debug_info["api_style"] = "auto"
+            notes = list(debug_info.get("notes", []))
+            notes.insert(0, f"responses 接口失败，已回退到 chat/completions：{responses_error}")
+            debug_info["notes"] = notes
+            return payload, debug_info
     raise LLMExtractorError(f"不支持的 OpenAI 接口类型：{api_style}")
 
 
-def _extract_doc_payload_via_responses(doc: SourceDocument, config: AppConfig, model: str) -> dict[str, object]:
+def _extract_doc_payload_via_responses(
+    doc: SourceDocument,
+    config: AppConfig,
+    model: str,
+) -> tuple[dict[str, object], dict[str, object]]:
     request_payload = {
         "model": model,
         "store": False,
@@ -94,10 +129,22 @@ def _extract_doc_payload_via_responses(doc: SourceDocument, config: AppConfig, m
     }
     raw = _request_openai_json(request_payload, config, endpoint="responses")
     output_text = _extract_output_text_from_responses(raw)
-    return _parse_structured_output_json(output_text)
+    payload = _parse_structured_output_json(output_text)
+    return payload, {
+        "endpoint": "responses",
+        "mode": "json_schema",
+        "notes": [],
+        "request_payload": request_payload,
+        "raw_response": raw,
+        "output_text": output_text,
+    }
 
 
-def _extract_doc_payload_via_chat_completions(doc: SourceDocument, config: AppConfig, model: str) -> dict[str, object]:
+def _extract_doc_payload_via_chat_completions(
+    doc: SourceDocument,
+    config: AppConfig,
+    model: str,
+) -> tuple[dict[str, object], dict[str, object]]:
     try:
         request_payload = {
             "model": model,
@@ -116,12 +163,24 @@ def _extract_doc_payload_via_chat_completions(doc: SourceDocument, config: AppCo
         }
         raw = _request_openai_json(request_payload, config, endpoint="chat/completions")
         output_text = _extract_output_text_from_chat_completions(raw)
-        return _parse_structured_output_json(output_text)
+        payload = _parse_structured_output_json(output_text)
+        return payload, {
+            "endpoint": "chat/completions",
+            "mode": "json_schema",
+            "notes": [],
+            "request_payload": request_payload,
+            "raw_response": raw,
+            "output_text": output_text,
+        }
     except LLMExtractorError as structured_error:
         if "模型拒绝执行抽取" in str(structured_error):
             raise
         try:
-            return _extract_doc_payload_via_chat_completions_plain_json(doc, config, model)
+            payload, debug_info = _extract_doc_payload_via_chat_completions_plain_json(doc, config, model)
+            notes = list(debug_info.get("notes", []))
+            notes.insert(0, f"chat/completions 的 json_schema 模式失败，已回退到纯文本 JSON：{structured_error}")
+            debug_info["notes"] = notes
+            return payload, debug_info
         except LLMExtractorError as plain_error:
             raise LLMExtractorError(
                 f"Chat Completions 抽取失败。结构化模式错误：{structured_error}；纯文本 JSON 兜底错误：{plain_error}"
@@ -132,7 +191,7 @@ def _extract_doc_payload_via_chat_completions_plain_json(
     doc: SourceDocument,
     config: AppConfig,
     model: str,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], dict[str, object]]:
     request_payload = {
         "model": model,
         "messages": [
@@ -142,7 +201,15 @@ def _extract_doc_payload_via_chat_completions_plain_json(
     }
     raw = _request_openai_json(request_payload, config, endpoint="chat/completions")
     output_text = _extract_output_text_from_chat_completions(raw)
-    return _parse_structured_output_json(output_text)
+    payload = _parse_structured_output_json(output_text)
+    return payload, {
+        "endpoint": "chat/completions",
+        "mode": "plain_json_fallback",
+        "notes": [],
+        "request_payload": request_payload,
+        "raw_response": raw,
+        "output_text": output_text,
+    }
 
 
 def _request_openai_json(request_payload: dict[str, object], config: AppConfig, endpoint: str) -> dict[str, object]:
@@ -160,7 +227,7 @@ def _request_openai_json(request_payload: dict[str, object], config: AppConfig, 
     )
 
     try:
-        with urlopen(request, timeout=120) as response:
+        with urlopen(request, timeout=500) as response:
             data = response.read().decode("utf-8")
     except HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="ignore")
@@ -244,15 +311,19 @@ def _build_instructions() -> str:
         "8. 所有字段都必须返回字符串；不适用时返回空字符串。"
         "9. source_ref 必须使用输入文档的 location；evidence 必须是简短证据摘要，不要长段复制。"
         "10. 如果输入文档限定了层级，只输出该层级数组，其余层级返回空数组。"
+        "11. 文档中只要出现具体的颜色值、像素值、百分比、字号、行高、圆角、阴影、间距等明确数值，请优先总结为规则。"
+        "12. 如果文档中出现以下措辞或同义表达，请优先总结为规则：必须、禁止、避免、建议、应该、最多只能、当...时、少于或等于、不超过、间距、等分。"
+        "13. 遇到 Markdown 表格时，必须结合表头与单元格内容一起理解；表头定义字段语义，单元格值要与对应表头配对后再总结规则。"
+        "14. 规则内容必须使用中文描述；除 If / Then / Else 关键字、原始颜色值、原始像素值、组件名或技术字段名等必须保留的字面量外，不要输出英文解释。"
     )
 
 
 def _build_plain_json_instructions() -> str:
     return (
         _build_instructions()
-        + "11. 你必须只返回一个合法的 JSON 对象，不要附加解释。"
-        + "12. 不要输出 Markdown 代码块，不要输出前后说明文字。"
-        + "13. 顶层字段必须为 foundation_rules、component_rules、global_rules。"
+        + "15. 你必须只返回一个合法的 JSON 对象，不要附加解释。"
+        + "16. 不要输出 Markdown 代码块，不要输出前后说明文字。"
+        + "17. 顶层字段必须为 foundation_rules、component_rules、global_rules。"
     )
 
 
@@ -399,8 +470,9 @@ def _rule_schema() -> dict[str, object]:
     }
 
 
-def _rows_from_payload(payload: dict[str, object], doc: SourceDocument) -> list[RuleRow]:
+def _rows_from_payload(payload: dict[str, object], doc: SourceDocument) -> tuple[list[RuleRow], list[str]]:
     rows: list[RuleRow] = []
+    dropped_messages: list[str] = []
     layer_specs = [
         ("foundation_rules", "foundation", "FDN"),
         ("component_rules", "component", "CMP"),
@@ -414,8 +486,17 @@ def _rows_from_payload(payload: dict[str, object], doc: SourceDocument) -> list[
             row = _coerce_rule(item, doc, layer, fixed_prefix)
             if row is not None:
                 rows.append(row)
+            else:
+                dropped_messages.append(_build_drop_reason(item, payload_key))
 
-    return rows
+    if dropped_messages:
+        preview = "；".join(dropped_messages[:3])
+        print(
+            f"[uiux-rule-agent] LLM 返回的部分规则被跳过，共 {len(dropped_messages)} 条。原因示例：{preview}",
+            file=sys.stderr,
+        )
+
+    return rows, dropped_messages
 
 
 def _coerce_rule(item: dict[str, object], doc: SourceDocument, layer: str, fixed_prefix: str) -> RuleRow | None:
@@ -424,13 +505,15 @@ def _coerce_rule(item: dict[str, object], doc: SourceDocument, layer: str, fixed
     component = str(item.get("component", "")).strip()
     state = str(item.get("state", "")).strip() or "default"
     property_name = str(item.get("property_name", "")).strip()
-    default_value = str(item.get("default_value", "")).strip()
+    then_clause_raw = str(item.get("then_clause", "")).strip()
+    default_value = str(item.get("default_value", "")).strip() or _infer_default_value_from_then_clause(then_clause_raw)
 
-    if not subject or not property_name or not default_value:
+    if not subject or not property_name:
         return None
 
     condition_if = _ensure_prefix(str(item.get("condition_if", "")).strip(), "If ", fallback=f"If 对象 = {subject}")
-    then_clause = _ensure_prefix(str(item.get("then_clause", "")).strip(), "Then ", fallback=f"Then {property_name} 必须为 {default_value}")
+    then_fallback = f"Then {property_name} 必须为 {default_value}" if default_value else f"Then {property_name} 必须被定义"
+    then_clause = _ensure_prefix(then_clause_raw, "Then ", fallback=then_fallback)
     else_clause = _ensure_prefix(str(item.get("else_clause", "")).strip(), "Else ", fallback="Else 保持默认规则")
 
     prefix = fixed_prefix or PAGE_TYPE_TO_PREFIX.get(page_type, "LAY")
@@ -467,3 +550,94 @@ def _ensure_prefix(value: str, prefix: str, fallback: str) -> str:
     if not value:
         return fallback
     return value if value.startswith(prefix) else f"{prefix}{value}"
+
+
+def _infer_default_value_from_then_clause(then_clause: str) -> str:
+    text = (then_clause or "").strip()
+    if not text:
+        return ""
+
+    patterns = [
+        r"必须为\s*(.+)$",
+        r"必须是\s*(.+)$",
+        r"必须出现在\s*(.+)$",
+        r"必须展示\s*(.+)$",
+        r"必须包含\s*(.+)$",
+        r"优先为\s*(.+)$",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text)
+        if match:
+            return match.group(1).strip().rstrip("。；;")
+
+    if "不得关闭" in text:
+        return "false"
+    if "必须关闭" in text:
+        return "true"
+    if "必须被显式定义" in text:
+        return "required"
+
+    return ""
+
+
+def _build_drop_reason(item: dict[str, object], payload_key: str) -> str:
+    missing_fields: list[str] = []
+    if not str(item.get("subject", "")).strip():
+        missing_fields.append("subject")
+    if not str(item.get("property_name", "")).strip():
+        missing_fields.append("property_name")
+
+    subject_preview = str(item.get("subject", "")).strip() or "(empty-subject)"
+    if not missing_fields:
+        missing_fields.append("unknown")
+    return f"{payload_key}:{subject_preview}: 缺少 {', '.join(missing_fields)}"
+
+
+def _write_llm_debug_artifacts(
+    debug_dir: str,
+    doc_index: int,
+    doc: SourceDocument,
+    model: str,
+    api_style: str,
+    payload: dict[str, object],
+    debug_info: dict[str, object],
+    dropped_messages: list[str],
+) -> None:
+    target = Path(debug_dir) / "llm" / f"doc-{doc_index:03d}"
+    target.mkdir(parents=True, exist_ok=True)
+    payload_rule_count = _count_payload_rules(payload)
+
+    metadata = {
+        "doc_index": doc_index,
+        "location": doc.location,
+        "title": doc.title,
+        "source_type": doc.source_type,
+        "source_bucket": doc.source_bucket,
+        "model": model,
+        "api_style": api_style,
+        "endpoint": debug_info.get("endpoint", ""),
+        "mode": debug_info.get("mode", ""),
+        "notes": debug_info.get("notes", []),
+        "kept_rule_count": max(payload_rule_count - len(dropped_messages), 0),
+        "dropped_rule_count": len(dropped_messages),
+    }
+
+    _write_json_file(target / "meta.json", metadata)
+    _write_json_file(target / "request.json", debug_info.get("request_payload", {}))
+    _write_json_file(target / "raw-response.json", debug_info.get("raw_response", {}))
+    _write_json_file(target / "payload.json", payload)
+    _write_json_file(target / "dropped-rules.json", {"dropped_rules": dropped_messages})
+    (target / "output-text.txt").write_text(str(debug_info.get("output_text", "")), encoding="utf-8")
+
+
+def _write_json_file(path: Path, payload: object) -> None:
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _count_payload_rules(payload: dict[str, object]) -> int:
+    total = 0
+    for key in ("foundation_rules", "component_rules", "global_rules"):
+        value = payload.get(key, [])
+        if isinstance(value, list):
+            total += len(value)
+    return total
