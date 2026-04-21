@@ -6,6 +6,8 @@ from pathlib import Path
 
 from .models import CSV_COLUMNS, RuleRow
 
+CSV_FILE_ENCODING = "utf-8-sig"
+
 
 def assign_rule_ids(rows: list[RuleRow]) -> None:
     counters: dict[str, int] = defaultdict(int)
@@ -25,7 +27,7 @@ def write_csvs(rows: list[RuleRow], output_dir: str) -> None:
     }
 
     for filename, subset in file_map.items():
-        with (target / filename).open("w", newline="", encoding="utf-8") as handle:
+        with (target / filename).open("w", newline="", encoding=CSV_FILE_ENCODING) as handle:
             writer = csv.DictWriter(handle, fieldnames=CSV_COLUMNS)
             writer.writeheader()
             for row in subset:

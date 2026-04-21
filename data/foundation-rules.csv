@@ -1,4 +1,4 @@
-rule_id,prefix,layer,page_type,subject,component,state,property_name,condition_if,then_clause,else_clause,default_value,preferred_pattern,anti_pattern,evidence,source_ref
+﻿rule_id,prefix,layer,page_type,subject,component,state,property_name,condition_if,then_clause,else_clause,default_value,preferred_pattern,anti_pattern,evidence,source_ref
 FDN-001,FDN,foundation,foundation,设计层颜色模型,,default,color-model,If 定义设计层颜色模型,Then color-model 必须为 HSB,Else 禁止在同一规范中混用多个主色彩模型,HSB,在设计稿和团队评审语言中统一使用 HSB,不要把 RGB 或 HSL 作为团队主沟通模型,官方页面说明设计团队倾向采用 HSB 进行设计,https://ant.design/docs/spec/colors-cn/
 FDN-002,FDN,foundation,foundation,系统级色彩体系-基础色板,,default,required-palette-group,If 定义系统级色彩体系,Then required-palette-group 必须包含 foundation-palette,Else 禁止只定义产品色而缺失基础色板,foundation-palette,先建立基础色板再映射到品牌与业务语义,不要直接从零散品牌色开始定义全站颜色,官方页面将基础色板列为系统级色彩体系的一部分,https://ant.design/docs/spec/colors-cn/
 FDN-003,FDN,foundation,foundation,系统级色彩体系-中性色板,,default,required-palette-group,If 定义系统级色彩体系,Then required-palette-group 必须包含 neutral-palette,Else 禁止跳过中性色层直接拼接文本和边框色,neutral-palette,将文本 边框 背景与分割线统一收敛到中性色板,不要让中性色散落为临时灰度值,官方页面将中性色板列为系统级色彩体系的一部分,https://ant.design/docs/spec/colors-cn/

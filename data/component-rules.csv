@@ -1,4 +1,4 @@
-rule_id,prefix,layer,page_type,subject,component,state,property_name,condition_if,then_clause,else_clause,default_value,preferred_pattern,anti_pattern,evidence,source_ref
+﻿rule_id,prefix,layer,page_type,subject,component,state,property_name,condition_if,then_clause,else_clause,default_value,preferred_pattern,anti_pattern,evidence,source_ref
 CMP-001,CMP,component,component,toolbar,toolbar,default,width,If 屏幕宽度 <= 600px and 组件 = toolbar and 状态 = default,Then width 必须为 100%,Else 禁止出现未定义的 width 变化,100%,为每个组件状态分别声明单一属性值，确保规则原子化,禁止 toolbar 在 default 态混用多个 width 取值,.bottom-action-bar -> width: 100%,examples/sample-guidelines.md
 CMP-002,CMP,component,component,toolbar,toolbar,default,gap,If 组件 = toolbar and 状态 = default,Then gap 必须为 12px,Else 禁止出现未定义的 gap 变化,12px,为每个组件状态分别声明单一属性值，确保规则原子化,禁止 toolbar 在 default 态混用多个 gap 取值,.toolbar -> gap: 12px,examples/sample-guidelines.md
 CMP-003,CMP,component,component,button,button,default,height,If 组件 = button and 状态 = default,Then height 必须为 32px,Else 禁止出现未定义的 height 变化,32px,为每个组件状态分别声明单一属性值，确保规则原子化,禁止 button 在 default 态混用多个 height 取值,.button -> height: 32px,examples/sample-guidelines.md

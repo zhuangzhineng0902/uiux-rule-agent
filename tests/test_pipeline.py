@@ -17,6 +17,7 @@ if str(SRC) not in sys.path:
 
 from uiux_rule_agent.cli import run
 from uiux_rule_agent.config import load_app_config
+from uiux_rule_agent.ingest import load_documents
 from uiux_rule_agent.llm_extractor import (
     LLMExtractorError,
     _build_instructions,
@@ -24,6 +25,7 @@ from uiux_rule_agent.llm_extractor import (
     extract_rules_with_llm,
 )
 from uiux_rule_agent.models import RuleRow, SourceDocument
+from uiux_rule_agent.writer import CSV_FILE_ENCODING
 
 
 class FakeJSONResponse:
@@ -236,11 +238,11 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["component_rules"], 0)
             self.assertEqual(result["global_rules"], 0)
 
-            with (output_dir / "component-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "component-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 component_rows = list(csv.DictReader(handle))
-            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "foundation-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 foundation_rows = list(csv.DictReader(handle))
-            with (output_dir / "global-layout-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "global-layout-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 global_rows = list(csv.DictReader(handle))
 
             self.assertTrue(any(row["subject"] == "button" and row["state"] == "hover" for row in component_rows))
@@ -270,11 +272,11 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["component_rules"], 0)
             self.assertGreater(result["global_rules"], 0)
 
-            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "foundation-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 foundation_rows = list(csv.DictReader(handle))
-            with (output_dir / "component-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "component-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 component_rows = list(csv.DictReader(handle))
-            with (output_dir / "global-layout-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "global-layout-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 global_rows = list(csv.DictReader(handle))
 
             self.assertTrue(any(row["subject"] == "Primary color" for row in foundation_rows))
@@ -472,40 +474,33 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(len(dropped["dropped_rules"]), 1)
             self.assertIn("缺少 subject", dropped["dropped_rules"][0])
 
-    def test_multiple_remote_sources_can_be_combined_from_config(self) -> None:
+    def test_remote_url_from_config_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "out"
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
                 '[input]\n'
-                'sources = ["https://ant.design/docs/spec/colors-cn", "https://ant.design/docs/spec/font-cn"]\n'
+                'sources = ["https://example.com/spec"]\n'
                 'max_pages = 2\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
                 encoding="utf-8",
             )
 
-            result = run(None, output_dir=str(output_dir), config_path=str(config_path))
-
-            self.assertEqual(result["documents"], 2)
-            self.assertGreater(result["foundation_rules"], 40)
-            self.assertEqual(result["component_rules"], 0)
-            self.assertEqual(result["global_rules"], 0)
-
-            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
-                foundation_rows = list(csv.DictReader(handle))
-
-            self.assertTrue(any(row["subject"] == "品牌主色" for row in foundation_rows))
-            self.assertTrue(any(row["subject"] == "主字体字号" for row in foundation_rows))
+            with self.assertRaisesRegex(ValueError, "仅支持本地 Markdown 文件或目录，不支持网站 URL"):
+                run(None, output_dir=str(output_dir), config_path=str(config_path))
 
     def test_cli_input_overrides_configured_input_source(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             output_dir = Path(temp_dir) / "out"
+            alternative_dir = Path(temp_dir) / "alternative-docs"
+            alternative_dir.mkdir()
+            (alternative_dir / "other.md").write_text("# Other\n\n- Secondary color: #999999\n", encoding="utf-8")
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                '[input]\nsources = ["https://example.com", "https://example.org"]\nmax_pages = 2\n\n'
+                f'[input]\nsources = ["{alternative_dir}"]\nmax_pages = 2\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
                 encoding="utf-8",
@@ -516,20 +511,9 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["foundation_rules"], 0)
             self.assertTrue((output_dir / "foundation-rules.csv").exists())
 
-    def test_remote_and_local_sources_cannot_be_mixed(self) -> None:
-        fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
-
-        with tempfile.TemporaryDirectory() as temp_dir:
-            config_path = Path(temp_dir) / "ai.toml"
-            config_path.write_text(
-                f'[input]\nsources = ["https://example.com", "{fixture}"]\nmax_pages = 2\n\n'
-                '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
-                '[extraction]\nstrategy = "heuristic"\n',
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(ValueError, "不能混用远程 URL 和本地路径"):
-                run(None, output_dir=temp_dir, config_path=str(config_path))
+    def test_load_documents_rejects_remote_url(self) -> None:
+        with self.assertRaisesRegex(ValueError, "仅支持本地 Markdown 文件或目录，不支持网站 URL"):
+            load_documents("https://example.com/spec")
 
     def test_markdown_pipeline_generates_three_csvs(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
@@ -549,11 +533,11 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["component_rules"], 0)
             self.assertGreater(result["global_rules"], 0)
 
-            with foundation.open(encoding="utf-8") as handle:
+            with foundation.open(encoding=CSV_FILE_ENCODING) as handle:
                 foundation_rows = list(csv.DictReader(handle))
-            with component.open(encoding="utf-8") as handle:
+            with component.open(encoding=CSV_FILE_ENCODING) as handle:
                 component_rows = list(csv.DictReader(handle))
-            with global_rules.open(encoding="utf-8") as handle:
+            with global_rules.open(encoding=CSV_FILE_ENCODING) as handle:
                 global_rows = list(csv.DictReader(handle))
 
             self.assertTrue(any(row["rule_id"].startswith("FDN-") for row in foundation_rows))
@@ -590,11 +574,11 @@ class PipelineTest(unittest.TestCase):
             self.assertGreater(result["component_rules"], 0)
             self.assertGreater(result["global_rules"], 0)
 
-            with (output_dir / "foundation-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "foundation-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 foundation_rows = list(csv.DictReader(handle))
-            with (output_dir / "component-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "component-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 component_rows = list(csv.DictReader(handle))
-            with (output_dir / "global-layout-rules.csv").open(encoding="utf-8") as handle:
+            with (output_dir / "global-layout-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 global_rows = list(csv.DictReader(handle))
 
             self.assertTrue(any(row["subject"] == "Primary color" for row in foundation_rows))
@@ -603,37 +587,21 @@ class PipelineTest(unittest.TestCase):
             self.assertFalse(any(row["prefix"] == "CMP" for row in global_rows))
             self.assertTrue(any("屏幕宽度 < 600px" in row["condition_if"] for row in global_rows))
 
-    def test_official_ant_design_color_spec_uses_builtin_foundation_rules(self) -> None:
+    def test_non_markdown_file_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = run("https://ant.design/docs/spec/colors-cn", output_dir=temp_dir, max_pages=1)
-            target = Path(temp_dir)
+            plain_text = Path(temp_dir) / "notes.txt"
+            plain_text.write_text("not markdown", encoding="utf-8")
 
-            self.assertEqual(result["documents"], 1)
-            self.assertGreater(result["foundation_rules"], 30)
-            self.assertEqual(result["component_rules"], 0)
-            self.assertEqual(result["global_rules"], 0)
+            with self.assertRaisesRegex(ValueError, "仅支持 Markdown 文件输入"):
+                load_documents(str(plain_text))
 
-            with (target / "foundation-rules.csv").open(encoding="utf-8") as handle:
-                foundation_rows = list(csv.DictReader(handle))
-
-            self.assertTrue(any(row["subject"] == "品牌主色" and row["default_value"] == "#1677FF" for row in foundation_rows))
-            self.assertTrue(any(row["subject"] == "基础色板" and row["property_name"] == "hue-family-count" for row in foundation_rows))
-
-    def test_official_ant_design_font_spec_uses_builtin_foundation_rules(self) -> None:
+    def test_directory_without_markdown_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = run("https://ant.design/docs/spec/font-cn/", output_dir=temp_dir, max_pages=1)
-            target = Path(temp_dir)
+            empty_dir = Path(temp_dir) / "empty-docs"
+            empty_dir.mkdir()
 
-            self.assertEqual(result["documents"], 1)
-            self.assertGreaterEqual(result["foundation_rules"], 10)
-            self.assertEqual(result["component_rules"], 0)
-            self.assertEqual(result["global_rules"], 0)
-
-            with (target / "foundation-rules.csv").open(encoding="utf-8") as handle:
-                foundation_rows = list(csv.DictReader(handle))
-
-            self.assertTrue(any(row["subject"] == "主字体字号" and row["default_value"] == "14px" for row in foundation_rows))
-            self.assertTrue(any(row["subject"] == "默认字体家族" and "BlinkMacSystemFont" in row["default_value"] for row in foundation_rows))
+            with self.assertRaisesRegex(ValueError, "目录中未找到 Markdown 文件"):
+                load_documents(str(empty_dir))
 
     def test_llm_extractor_can_be_selected_explicitly(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
@@ -678,7 +646,7 @@ class PipelineTest(unittest.TestCase):
             self.assertEqual(result["component_rules"], 0)
             self.assertEqual(result["global_rules"], 0)
 
-            with (Path(temp_dir) / "foundation-rules.csv").open(encoding="utf-8") as handle:
+            with (Path(temp_dir) / "foundation-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
                 foundation_rows = list(csv.DictReader(handle))
 
             self.assertEqual(foundation_rows[0]["subject"], "LLM 主字号")
@@ -706,7 +674,7 @@ class PipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                '[input]\nsources = ["./docs", "https://example.com/spec"]\nmax_pages = 8\n\n'
+                '[input]\nsources = ["./docs"]\nmax_pages = 8\n\n'
                 '[output]\ndirectory = "./exports"\n\n'
                 '[openai]\napi_key = "demo-key"\nbase_url = "https://example.com/v1"\nmodel = "gpt-5.4-mini"\napi_style = "chat_completions"\n\n'
                 '[extraction]\nstrategy = "llm"\n',
@@ -715,7 +683,7 @@ class PipelineTest(unittest.TestCase):
 
             config = load_app_config(str(config_path))
 
-            self.assertEqual(config.input.sources, ["./docs", "https://example.com/spec"])
+            self.assertEqual(config.input.sources, ["./docs"])
             self.assertEqual(config.input.max_pages, 8)
             self.assertEqual(config.output.directory, "./exports")
             self.assertEqual(config.openai.api_key, "demo-key")
@@ -738,6 +706,15 @@ class PipelineTest(unittest.TestCase):
 
             self.assertEqual(config.input.sources, ["./docs"])
             self.assertEqual(config.input.max_pages, 4)
+
+    def test_generated_csv_uses_utf8_bom_for_excel_compatibility(self) -> None:
+        fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            run(str(fixture), output_dir=temp_dir, max_pages=1)
+            raw = (Path(temp_dir) / "foundation-rules.csv").read_bytes()
+
+            self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
 
 
 if __name__ == "__main__":

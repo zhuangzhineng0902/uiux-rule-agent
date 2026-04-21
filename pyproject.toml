@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "uiux-rule-agent"
 version = "0.1.0"
-description = "从网站或 Markdown 目录中生成原子化 UI/UX 规范规则。"
+description = "从本地 Markdown 文件或目录中生成原子化 UI/UX 规范规则。"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []

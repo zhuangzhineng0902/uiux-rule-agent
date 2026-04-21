@@ -1,6 +1,6 @@
 # UI/UX 规范规则生成 Agent
 
-`uiux-rule-agent` 用来读取网站 URL 或本地 Markdown 文件目录，并把抽取出的原子化 UI/UX 规范写入 `data/` 目录下的 CSV 文件。
+`uiux-rule-agent` 用来读取本地 Markdown 文件或目录，并把抽取出的原子化 UI/UX 规范写入 `data/` 目录下的 CSV 文件。
 
 ## 生成结果
 
@@ -13,6 +13,8 @@
 | `data/global-layout-rules.csv` | 全局布局与交互断言，包含响应式行为和页面类型前缀 | `LAY` / `DET` / `LST` / `CRE` / `APV` |
 
 CSV 中每一行都必须是原子规则，只描述一个属性。
+
+为兼容 Excel 等表格工具中的中文显示，生成的 CSV 会使用带 BOM 的 `UTF-8` 编码。
 
 ## 输出字段
 
@@ -44,8 +46,7 @@ CSV 中每一行都必须是原子规则，只描述一个属性。
 
 ## 主要能力
 
-- 支持远程 `http/https` 网站 URL，或本地 Markdown 文件 / 目录作为输入。
-- 对已知的官方规范页支持内置适配器，当前已接入 Ant Design 的 `colors-cn` 和 `font-cn`。
+- 仅支持本地 Markdown 文件 / 目录作为输入。
 - 支持混合抽取流程：Python 负责编排与落盘，未知输入可按需调用 OpenAI 模型做语义抽取。
 - 当 Markdown 输入目录中包含 `foundation-rules/`、`component-rules/`、`global-layout-rules/` 子目录时，会自动路由到对应 CSV。
 - 会把 `padding`、`margin`、`border` 等 CSS 简写自动展开为原子规则。
@@ -67,6 +68,7 @@ python3 ./agent.py --input ./examples/sample-guidelines.md --output-dir ./data
 ```toml
 [input]
 sources = ["./examples/sample-guidelines.md"]
+# 兼容旧版本保留，当前版本不再使用
 max_pages = 5
 
 [output]
@@ -108,22 +110,18 @@ python3 ./agent.py
 
 ## 输入模式
 
-多网页输入示例：
+本地输入示例：
 
 ```toml
 [input]
-sources = [
-  "https://ant.design/docs/spec/colors-cn",
-  "https://ant.design/docs/spec/font-cn",
-]
+sources = ["./examples/routing-demo"]
 max_pages = 5
 ```
 
 输入规则有以下约束：
 
-- 可以一次传入多个远程 `http/https` URL。
-- 或者一次传入一个本地 Markdown 文件，或一个本地 Markdown 目录。
-- 同一次运行中不能混用远程 URL 和本地路径。
+- 只允许传入一个本地 Markdown 文件，或一个本地 Markdown 目录。
+- 不支持网站 URL；如果需要处理网页内容，请先整理为本地 Markdown 再运行。
 - 如果输入的 Markdown 根目录名就是 `foundation-rules`、`component-rules`、`global-layout-rules` 之一，则该目录下遍历到的文件会全部强制写入对应的同名 CSV。
 - 如果目录名未命中上述目标名，则系统会逐个文件按内容语义判断，分别生成到 foundation、component、global 对应的 CSV 中。
 
@@ -179,19 +177,16 @@ python3 -m pip install -e .
 uiux-rule-agent --input ./examples/sample-guidelines.md --output-dir ./data
 ```
 
-以网站为输入：
+以本地 Markdown 目录为输入：
 
 ```bash
-uiux-rule-agent --input https://example.com --output-dir ./data --max-pages 5
+uiux-rule-agent --input ./examples/routing-demo --output-dir ./data
 ```
 
-从命令行传入多个网页 URL：
+以单个本地 Markdown 文件为输入：
 
 ```bash
-python3 ./agent.py \
-  --input https://ant.design/docs/spec/colors-cn \
-  --input https://ant.design/docs/spec/font-cn \
-  --config ./config/ai.toml
+python3 ./agent.py --input ./examples/sample-guidelines.md --output-dir ./data
 ```
 
 显式使用 LLM 抽取：
@@ -255,8 +250,9 @@ docs/
 
 ## 说明
 
-- 网站抓取默认是保守模式，只会在同域内跟进有限数量的页面。
 - `--input`、`--output-dir`、`--max-pages` 都是可选覆盖项；如果不传，会从 `config/ai.toml` 中读取 `input.sources`、`output.directory`、`input.max_pages`。
+- 当前版本只支持本地 Markdown 文件和目录输入，不支持网站 URL。
+- `max_pages` 仅为兼容旧配置保留，当前版本不会使用它。
 - 为了兼容旧配置，`input.source` 仍然可用，但推荐统一使用 `input.sources`。
 - 在 `auto` 模式下，如果 `config/ai.toml` 中配置了 `openai.api_key`，会优先使用 OpenAI Responses API 的结构化输出；否则自动回退到启发式抽取器。
 - `openai.api_style = "auto"` 时，会优先走 `Responses API`，失败后自动尝试兼容 OpenAI 的 `Chat Completions API`。
