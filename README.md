@@ -114,16 +114,20 @@ python3 ./agent.py
 
 ```toml
 [input]
-sources = ["./examples/routing-demo"]
+sources = [
+  "./examples/sample-guidelines.md",
+  "./examples/routing-demo/mixed.md",
+]
 max_pages = 5
 ```
 
 输入规则有以下约束：
 
-- 只允许传入一个本地 Markdown 文件，或一个本地 Markdown 目录。
+- 支持传入一个或多个本地 Markdown 文件 / 目录。
 - 不支持网站 URL；如果需要处理网页内容，请先整理为本地 Markdown 再运行。
 - 如果输入的 Markdown 根目录名就是 `foundation-rules`、`component-rules`、`global-layout-rules` 之一，则该目录下遍历到的文件会全部强制写入对应的同名 CSV。
 - 如果目录名未命中上述目标名，则系统会逐个文件按内容语义判断，分别生成到 foundation、component、global 对应的 CSV 中。
+- 如果同一个文件被重复传入，或者既传了目录又传了该目录中的文件，系统会自动去重，避免重复解析。
 
 ## 目录命名路由规则
 
@@ -181,6 +185,15 @@ uiux-rule-agent --input ./examples/sample-guidelines.md --output-dir ./data
 
 ```bash
 uiux-rule-agent --input ./examples/routing-demo --output-dir ./data
+```
+
+以多个本地 Markdown 文件为输入：
+
+```bash
+python3 ./agent.py \
+  --input ./examples/sample-guidelines.md \
+  --input ./examples/routing-demo/mixed.md \
+  --output-dir ./data
 ```
 
 以单个本地 Markdown 文件为输入：

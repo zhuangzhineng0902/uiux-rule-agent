@@ -490,6 +490,49 @@ class PipelineTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "仅支持本地 Markdown 文件或目录，不支持网站 URL"):
                 run(None, output_dir=str(output_dir), config_path=str(config_path))
 
+    def test_multiple_local_markdown_files_can_be_used_as_inputs(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_dir = Path(temp_dir) / "docs"
+            docs_dir.mkdir()
+            file_one = docs_dir / "tokens.md"
+            file_two = docs_dir / "layout.md"
+
+            file_one.write_text(
+                "# Tokens\n\n- Primary color: #0067D1\n",
+                encoding="utf-8",
+            )
+            file_two.write_text(
+                "# Layout\n\n如果 屏幕宽度 < 600px，则 底部操作栏 必须 撑满全屏（100% width），否则 保持桌面端悬浮宽度。\n",
+                encoding="utf-8",
+            )
+
+            output_dir = Path(temp_dir) / "out"
+            result = run([str(file_one), str(file_two)], output_dir=str(output_dir))
+
+            self.assertEqual(result["documents"], 2)
+            self.assertGreater(result["foundation_rules"], 0)
+            self.assertGreater(result["global_rules"], 0)
+
+            with (output_dir / "foundation-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
+                foundation_rows = list(csv.DictReader(handle))
+            with (output_dir / "global-layout-rules.csv").open(encoding=CSV_FILE_ENCODING) as handle:
+                global_rows = list(csv.DictReader(handle))
+
+            self.assertTrue(any(row["subject"] == "Primary color" for row in foundation_rows))
+            self.assertTrue(any("屏幕宽度 < 600px" in row["condition_if"] for row in global_rows))
+
+    def test_overlapping_directory_and_file_inputs_are_deduplicated(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            docs_dir = Path(temp_dir) / "docs"
+            docs_dir.mkdir()
+            nested_file = docs_dir / "tokens.md"
+            nested_file.write_text("# Tokens\n\n- Primary color: #0067D1\n", encoding="utf-8")
+
+            output_dir = Path(temp_dir) / "out"
+            result = run([str(docs_dir), str(nested_file)], output_dir=str(output_dir))
+
+            self.assertEqual(result["documents"], 1)
+
     def test_cli_input_overrides_configured_input_source(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
 

@@ -35,9 +35,15 @@ def run(
 
     documents = []
     rules = []
+    seen_document_locations: set[str] = set()
 
     for source in selected_inputs:
-        documents.extend(load_documents(source))
+        for document in load_documents(source):
+            normalized_location = str(Path(document.location).resolve())
+            if normalized_location in seen_document_locations:
+                continue
+            seen_document_locations.add(normalized_location)
+            documents.append(document)
 
     if documents:
         rules.extend(
@@ -79,8 +85,6 @@ def _resolve_input_values(input_value: str | list[str] | None, app_config) -> li
     remote_sources = [source for source in selected_inputs if _is_remote_source(source)]
     if remote_sources:
         raise ValueError("当前版本仅支持本地 Markdown 文件或目录，不支持网站 URL。")
-    if len(selected_inputs) > 1:
-        raise ValueError("每次运行只支持一个本地 Markdown 文件或一个本地目录。")
 
     return selected_inputs
 
@@ -130,7 +134,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--input",
         action="append",
         default=None,
-        help="可选输入源。仅支持本地 Markdown 文件或目录。默认读取配置文件中的 [input].sources。",
+        help="可选输入源。仅支持本地 Markdown 文件或目录；可重复传入多个本地路径。默认读取配置文件中的 [input].sources。",
     )
     parser.add_argument(
         "--output-dir",
