@@ -68,8 +68,6 @@ python3 ./agent.py --input ./examples/sample-guidelines.md --output-dir ./data
 ```toml
 [input]
 sources = ["./examples/sample-guidelines.md"]
-# 兼容旧版本保留，当前版本不再使用
-max_pages = 5
 
 [output]
 directory = "./data"
@@ -118,7 +116,6 @@ sources = [
   "./examples/sample-guidelines.md",
   "./examples/routing-demo/mixed.md",
 ]
-max_pages = 5
 ```
 
 输入规则有以下约束：
@@ -263,9 +260,8 @@ docs/
 
 ## 说明
 
-- `--input`、`--output-dir`、`--max-pages` 都是可选覆盖项；如果不传，会从 `config/ai.toml` 中读取 `input.sources`、`output.directory`、`input.max_pages`。
+- `--input`、`--output-dir` 都是可选覆盖项；如果不传，会从 `config/ai.toml` 中读取 `input.sources`、`output.directory`。
 - 当前版本只支持本地 Markdown 文件和目录输入，不支持网站 URL。
-- `max_pages` 仅为兼容旧配置保留，当前版本不会使用它。
 - 为了兼容旧配置，`input.source` 仍然可用，但推荐统一使用 `input.sources`。
 - 在 `auto` 模式下，如果 `config/ai.toml` 中配置了 `openai.api_key`，会优先使用 OpenAI Responses API 的结构化输出；否则自动回退到启发式抽取器。
 - `openai.api_style = "auto"` 时，会优先走 `Responses API`，失败后自动尝试兼容 OpenAI 的 `Chat Completions API`。

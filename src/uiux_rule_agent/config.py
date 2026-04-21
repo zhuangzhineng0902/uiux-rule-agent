@@ -10,7 +10,6 @@ DEFAULT_LLM_MODEL = "gpt-5.4-mini"
 DEFAULT_OPENAI_API_STYLE = "auto"
 DEFAULT_EXTRACTOR = "auto"
 DEFAULT_INPUT_SOURCE = ""
-DEFAULT_MAX_PAGES = 5
 DEFAULT_OUTPUT_DIR = "data"
 
 
@@ -30,7 +29,6 @@ class ExtractionConfig:
 @dataclass(slots=True)
 class InputConfig:
     sources: list[str]
-    max_pages: int = DEFAULT_MAX_PAGES
 
 
 @dataclass(slots=True)
@@ -67,7 +65,6 @@ def load_app_config(config_path: str | None = None) -> AppConfig:
     )
     input_config = InputConfig(
         sources=_coerce_sources(input_payload),
-        max_pages=_coerce_positive_int(input_payload.get("max_pages"), DEFAULT_MAX_PAGES),
     )
     output_config = OutputConfig(
         directory=str(output_payload.get("directory", DEFAULT_OUTPUT_DIR)).strip() or DEFAULT_OUTPUT_DIR,
@@ -88,14 +85,6 @@ def _read_toml_file(path: Path) -> dict:
     with path.open("rb") as handle:
         data = tomllib.load(handle)
     return data if isinstance(data, dict) else {}
-
-
-def _coerce_positive_int(value: object, fallback: int) -> int:
-    try:
-        parsed = int(value)
-    except (TypeError, ValueError):
-        return fallback
-    return parsed if parsed > 0 else fallback
 
 
 def _coerce_sources(payload: dict) -> list[str]:

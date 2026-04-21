@@ -23,7 +23,6 @@ class ChineseArgumentParser(argparse.ArgumentParser):
 def run(
     input_value: str | list[str] | None = None,
     output_dir: str | None = None,
-    max_pages: int | None = None,
     extractor: str | None = None,
     llm_model: str | None = None,
     config_path: str | None = None,
@@ -142,12 +141,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="可选输出目录覆盖项。默认读取配置文件中的 [output].directory。",
     )
     parser.add_argument(
-        "--max-pages",
-        type=int,
-        default=None,
-        help="兼容旧配置保留参数，当前版本不再使用。",
-    )
-    parser.add_argument(
         "--config",
         default=DEFAULT_CONFIG_PATH,
         help="应用配置 TOML 文件路径。",
@@ -172,7 +165,6 @@ def main() -> int:
     result = run(
         args.input,
         args.output_dir,
-        args.max_pages,
         extractor=args.extractor,
         llm_model=args.llm_model,
         config_path=args.config,

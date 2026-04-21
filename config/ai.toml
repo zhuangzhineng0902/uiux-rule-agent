@@ -1,8 +1,6 @@
 # 输入源配置
 [input]
 sources = []
-# 兼容旧版本保留，当前版本不再使用
-max_pages = 5
 
 # 输出目录配置
 [output]

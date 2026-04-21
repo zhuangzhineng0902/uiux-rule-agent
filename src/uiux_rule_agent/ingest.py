@@ -86,7 +86,7 @@ def load_markdown_docs(path_value: str) -> list[SourceDocument]:
     return documents
 
 
-def load_documents(input_value: str, max_pages: int | None = None) -> list[SourceDocument]:
+def load_documents(input_value: str) -> list[SourceDocument]:
     parsed = urlparse(input_value)
     if parsed.scheme in {"http", "https"}:
         raise ValueError("当前版本仅支持本地 Markdown 文件或目录，不支持网站 URL。")

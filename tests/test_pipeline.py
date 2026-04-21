@@ -188,7 +188,7 @@ class PipelineTest(unittest.TestCase):
             configured_output_dir = Path(temp_dir) / "configured-out"
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                f'[input]\nsources = ["{fixture}"]\nmax_pages = 3\n\n'
+                f'[input]\nsources = ["{fixture}"]\n\n'
                 f'[output]\ndirectory = "{configured_output_dir}"\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
@@ -209,7 +209,7 @@ class PipelineTest(unittest.TestCase):
             output_dir = Path(temp_dir) / "out"
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                f'[input]\nsources = ["{fixture}"]\nmax_pages = 3\n\n'
+                f'[input]\nsources = ["{fixture}"]\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
                 encoding="utf-8",
@@ -232,7 +232,7 @@ class PipelineTest(unittest.TestCase):
             )
 
             output_dir = Path(temp_dir) / "out"
-            result = run(str(component_root), output_dir=str(output_dir), max_pages=1)
+            result = run(str(component_root), output_dir=str(output_dir))
 
             self.assertEqual(result["foundation_rules"], 0)
             self.assertGreater(result["component_rules"], 0)
@@ -266,7 +266,7 @@ class PipelineTest(unittest.TestCase):
             )
 
             output_dir = root / "out"
-            result = run(str(root), output_dir=str(output_dir), max_pages=1)
+            result = run(str(root), output_dir=str(output_dir))
 
             self.assertGreater(result["foundation_rules"], 0)
             self.assertGreater(result["component_rules"], 0)
@@ -433,7 +433,7 @@ class PipelineTest(unittest.TestCase):
             output_dir = Path(temp_dir) / "out"
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                f'[input]\nsources = ["{fixture}"]\nmax_pages = 1\n\n'
+                f'[input]\nsources = ["{fixture}"]\n\n'
                 f'[output]\ndirectory = "{output_dir}"\n\n'
                 '[openai]\napi_key = "test-key"\nbase_url = "https://example.com/v1"\nmodel = "gpt-5.4-mini"\napi_style = "chat_completions"\n\n'
                 '[extraction]\nstrategy = "llm"\n',
@@ -481,7 +481,7 @@ class PipelineTest(unittest.TestCase):
             config_path.write_text(
                 '[input]\n'
                 'sources = ["https://example.com/spec"]\n'
-                'max_pages = 2\n\n'
+                '\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
                 encoding="utf-8",
@@ -543,7 +543,7 @@ class PipelineTest(unittest.TestCase):
             (alternative_dir / "other.md").write_text("# Other\n\n- Secondary color: #999999\n", encoding="utf-8")
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                f'[input]\nsources = ["{alternative_dir}"]\nmax_pages = 2\n\n'
+                f'[input]\nsources = ["{alternative_dir}"]\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "heuristic"\n',
                 encoding="utf-8",
@@ -562,7 +562,7 @@ class PipelineTest(unittest.TestCase):
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            result = run(str(fixture), output_dir=temp_dir, max_pages=1)
+            result = run(str(fixture), output_dir=temp_dir)
             target = Path(temp_dir)
 
             foundation = target / "foundation-rules.csv"
@@ -611,7 +611,7 @@ class PipelineTest(unittest.TestCase):
             )
 
             output_dir = root / "out"
-            result = run(str(root), output_dir=str(output_dir), max_pages=1)
+            result = run(str(root), output_dir=str(output_dir))
 
             self.assertGreater(result["foundation_rules"], 0)
             self.assertGreater(result["component_rules"], 0)
@@ -679,7 +679,6 @@ class PipelineTest(unittest.TestCase):
                 result = run(
                     str(fixture),
                     output_dir=temp_dir,
-                    max_pages=1,
                     extractor="llm",
                     llm_model="gpt-5.4-mini",
                     config_path=str(config_path),
@@ -708,7 +707,7 @@ class PipelineTest(unittest.TestCase):
                 "uiux_rule_agent.cli.extract_rules_with_llm",
                 side_effect=LLMExtractorError("llm unavailable"),
             ):
-                result = run(str(fixture), output_dir=temp_dir, max_pages=1, extractor="auto", config_path=str(config_path))
+                result = run(str(fixture), output_dir=temp_dir, extractor="auto", config_path=str(config_path))
             self.assertGreater(result["foundation_rules"], 0)
             self.assertGreater(result["component_rules"], 0)
             self.assertGreater(result["global_rules"], 0)
@@ -717,7 +716,7 @@ class PipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                '[input]\nsources = ["./docs"]\nmax_pages = 8\n\n'
+                '[input]\nsources = ["./docs"]\n\n'
                 '[output]\ndirectory = "./exports"\n\n'
                 '[openai]\napi_key = "demo-key"\nbase_url = "https://example.com/v1"\nmodel = "gpt-5.4-mini"\napi_style = "chat_completions"\n\n'
                 '[extraction]\nstrategy = "llm"\n',
@@ -727,7 +726,6 @@ class PipelineTest(unittest.TestCase):
             config = load_app_config(str(config_path))
 
             self.assertEqual(config.input.sources, ["./docs"])
-            self.assertEqual(config.input.max_pages, 8)
             self.assertEqual(config.output.directory, "./exports")
             self.assertEqual(config.openai.api_key, "demo-key")
             self.assertEqual(config.openai.base_url, "https://example.com/v1")
@@ -739,7 +737,7 @@ class PipelineTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             config_path = Path(temp_dir) / "ai.toml"
             config_path.write_text(
-                '[input]\nsource = "./docs"\nmax_pages = 4\n\n'
+                '[input]\nsource = "./docs"\n\n'
                 '[openai]\napi_key = ""\nbase_url = "https://api.openai.com/v1"\nmodel = "gpt-5.4-mini"\n\n'
                 '[extraction]\nstrategy = "auto"\n',
                 encoding="utf-8",
@@ -748,13 +746,12 @@ class PipelineTest(unittest.TestCase):
             config = load_app_config(str(config_path))
 
             self.assertEqual(config.input.sources, ["./docs"])
-            self.assertEqual(config.input.max_pages, 4)
 
     def test_generated_csv_uses_utf8_bom_for_excel_compatibility(self) -> None:
         fixture = Path(__file__).resolve().parents[1] / "examples" / "sample-guidelines.md"
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            run(str(fixture), output_dir=temp_dir, max_pages=1)
+            run(str(fixture), output_dir=temp_dir)
             raw = (Path(temp_dir) / "foundation-rules.csv").read_bytes()
 
             self.assertTrue(raw.startswith(b"\xef\xbb\xbf"))
